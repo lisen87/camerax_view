@@ -5,6 +5,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.Rect;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.ThumbnailUtils;
 import android.net.Uri;
@@ -14,6 +15,7 @@ import android.os.Looper;
 import android.provider.MediaStore;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -33,6 +35,7 @@ import com.leeson.cameraxview.listener.TypeListener;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -251,7 +254,9 @@ public class CameraXView extends FrameLayout {
         this.duration = duration;
         mCaptureLayout.setDuration(duration);
     }
-
+    public void setMinDuration(int duration) {
+        mCaptureLayout.setMinDuration(duration);
+    }
     private String getPathTimeName(){
         SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault());
         return simpleDateFormat.format(new Date(System.currentTimeMillis()));
@@ -261,6 +266,9 @@ public class CameraXView extends FrameLayout {
     private String mediaPath;
     private int mediaType = 0;
     private boolean isShort;
+
+    private int scaleRate;
+    private MediaPlayer mMediaPlayer;
     @SuppressLint("RestrictedApi")
     private void initView() {
         setWillNotDraw(false);
@@ -288,13 +296,12 @@ public class CameraXView extends FrameLayout {
         mCaptureLayout.setTypeLisenter(new TypeListener() {
             @Override
             public void cancel() {
+                stopVideo();
                 mCaptureLayout.resetCaptureLayout();
                 mSwitchCamera.setVisibility(VISIBLE);
-                image_photo.setVisibility(GONE);
                 image_photo.setImageBitmap(null);
                 videoView.setVisibility(GONE);
                 previewView.setVisibility(VISIBLE);
-
             }
 
             @Override
@@ -332,7 +339,8 @@ public class CameraXView extends FrameLayout {
                 metadata.setReversedHorizontal(lensFacing == CameraSelector.LENS_FACING_FRONT);
                 ImageCapture.OutputFileOptions outputFileOptions = new ImageCapture.OutputFileOptions
                         .Builder(new File(mediaPath)).setMetadata(metadata).build();
-                imageCapture.takePicture(outputFileOptions, ContextCompat.getMainExecutor(mContext), new ImageCapture.OnImageSavedCallback() {
+                imageCapture.takePicture(outputFileOptions, ContextCompat.getMainExecutor(mContext),
+                        new ImageCapture.OnImageSavedCallback() {
                     @Override
                     public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
                         mediaUri = outputFileResults.getSavedUri();
@@ -361,7 +369,6 @@ public class CameraXView extends FrameLayout {
                                                     @Override
                                                     public void run() {
                                                         mCaptureLayout.startTypeBtnAnimator();
-                                                        previewView.setVisibility(GONE);
                                                     }
                                                 });
                                             }catch (Exception e){
@@ -372,12 +379,9 @@ public class CameraXView extends FrameLayout {
                                     return false;
                                 }
                             }).load(mediaUri).centerCrop().into(image_photo);
-                            image_photo.setVisibility(VISIBLE);
                         }else{
                             mCaptureLayout.startTypeBtnAnimator();
-                            image_photo.setVisibility(VISIBLE);
                             Glide.with(mContext).load(mediaUri).centerCrop().into(image_photo);
-                            previewView.setVisibility(GONE);
                         }
                     }
 
@@ -406,16 +410,47 @@ public class CameraXView extends FrameLayout {
                         if (isShort){
                             new File(mediaPath).delete();
                         }else{
-                            videoView.setVideoURI(mediaUri);
-                            videoView.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                            videoView.setVisibility(VISIBLE);
+                            videoView.post(new Runnable() {
                                 @Override
-                                public void onPrepared(MediaPlayer mediaPlayer) {
-                                    mediaPlayer.setLooping(true);
-                                    previewView.setVisibility(GONE);
-                                    videoView.start();
+                                public void run() {
+                                    try {
+                                        if (mMediaPlayer == null) {
+                                            mMediaPlayer = new MediaPlayer();
+                                        } else {
+                                            mMediaPlayer.reset();
+                                        }
+                                        mMediaPlayer.setDataSource(mediaPath);
+                                        mMediaPlayer.setSurface(videoView.getHolder().getSurface());
+                                        mMediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+                                        mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+                                        mMediaPlayer.setOnVideoSizeChangedListener(new MediaPlayer
+                                                .OnVideoSizeChangedListener() {
+                                            @Override
+                                            public void
+                                            onVideoSizeChanged(MediaPlayer mp, int videoWidth, int videoHeight) {
+                                                if (videoWidth > videoHeight) {
+                                                    LayoutParams videoViewParam;
+                                                    int height = (int) ((videoHeight / videoWidth) * getWidth());
+                                                    videoViewParam = new LayoutParams(LayoutParams.MATCH_PARENT, height);
+                                                    videoViewParam.gravity = Gravity.CENTER;
+                                                    videoView.setLayoutParams(videoViewParam);
+                                                }
+                                            }
+                                        });
+                                        mMediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                                            @Override
+                                            public void onPrepared(MediaPlayer mp) {
+                                                mMediaPlayer.start();
+                                            }
+                                        });
+                                        mMediaPlayer.setLooping(true);
+                                        mMediaPlayer.prepareAsync();
+                                    } catch (IOException e) {
+                                        e.printStackTrace();
+                                    }
                                 }
                             });
-                            videoView.setVisibility(VISIBLE);
                         }
                     }
 
@@ -433,7 +468,7 @@ public class CameraXView extends FrameLayout {
                     iCamera.onRecordShort(time);
                 }
 //                mCaptureLayout.setTextWithAnimation("录制时间过短");
-
+                camera.getCameraControl().setZoomRatio(1);
                 postDelayed(new Runnable() {
                     @Override
                     public void run() {
@@ -449,18 +484,20 @@ public class CameraXView extends FrameLayout {
                 if (iCamera != null){
                     iCamera.onRecordEnd(time);
                 }
+                camera.getCameraControl().setZoomRatio(1);
                 mCaptureLayout.startTypeBtnAnimator();
                 videoCapture.stopRecording();
             }
 
             @Override
             public void recordZoom(float zoom) {
-                if (iCamera != null){
-                    iCamera.onRecordZoom(zoom);
-                }
-                if (zoom > 0){
-                    int scaleRate = (int) (zoom / 40);
+                int newScale = (int) (zoom / 40);
+                if (zoom > 0 && scaleRate != newScale && newScale > 0){
+                    scaleRate = newScale;
                     camera.getCameraControl().setZoomRatio(scaleRate);
+                    if (iCamera != null){
+                        iCamera.onRecordZoom(zoom);
+                    }
                 }
             }
 
@@ -489,9 +526,17 @@ public class CameraXView extends FrameLayout {
             }
         });
     }
+    public void stopVideo() {
+        if (mMediaPlayer != null && mMediaPlayer.isPlaying()) {
+            mMediaPlayer.stop();
+            mMediaPlayer.release();
+            mMediaPlayer = null;
+        }
+    }
     @Override
     protected void onDetachedFromWindow() {
         cameraExecutor.shutdown();
+        stopVideo();
         super.onDetachedFromWindow();
     }
 
