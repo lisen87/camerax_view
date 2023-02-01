@@ -94,21 +94,27 @@ public class CameraXView extends FrameLayout {
     private ExecutorService cameraExecutor;
     private int lensFacing = CameraSelector.LENS_FACING_BACK;
     private static final double RATIO_4_3_VALUE = 4.0 / 3.0;
-    private static final double  RATIO_16_9_VALUE = 16.0 / 9.0;
+    private static final double RATIO_16_9_VALUE = 16.0 / 9.0;
 
 
     public CameraXView(@NonNull Context context) {
-        this(context,null);
+        this(context, null);
     }
 
     public CameraXView(@NonNull Context context, @Nullable AttributeSet attrs) {
-        this(context, attrs,0);
+        this(context, attrs, 0);
     }
 
     public CameraXView(@NonNull Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         mContext = context;
         initView();
+    }
+
+    /**
+     * 打开相机并开始预览
+     */
+    public void startCamera(){
         previewView.post(new Runnable() {
             @Override
             public void run() {
@@ -116,11 +122,12 @@ public class CameraXView extends FrameLayout {
             }
         });
     }
+
     /**
      * 是否有后摄像头
      */
-    private boolean hasBackCamera(){
-        if(processCameraProvider == null){
+    private boolean hasBackCamera() {
+        if (processCameraProvider == null) {
             return false;
         }
         try {
@@ -130,11 +137,12 @@ public class CameraXView extends FrameLayout {
         }
         return false;
     }
+
     /**
      * 是否有前摄像头
      */
-    private boolean hasFrontCamera(){
-        if(processCameraProvider == null){
+    private boolean hasFrontCamera() {
+        if (processCameraProvider == null) {
             return false;
         }
         try {
@@ -144,6 +152,7 @@ public class CameraXView extends FrameLayout {
         }
         return false;
     }
+
     private void setUpCamera() {
         cameraExecutor = Executors.newSingleThreadExecutor();
         final ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(mContext);
@@ -170,9 +179,8 @@ public class CameraXView extends FrameLayout {
         int screenAspectRatio = aspectRatio(displayMetrics.width(), displayMetrics.height());
 
         int rotation = previewView.getDisplay().getRotation();
-        Log.e("rotation", "bindCameraUseCases: "+rotation );
-        if(processCameraProvider == null){
-            Toast.makeText(mContext,"相机初始化失败",Toast.LENGTH_SHORT).show();
+        if (processCameraProvider == null) {
+            Toast.makeText(mContext, "camera init error", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -221,7 +229,7 @@ public class CameraXView extends FrameLayout {
         imageAnalysis.setAnalyzer(cameraExecutor, new ImageAnalysis.Analyzer() {
             @Override
             public void analyze(@NonNull ImageProxy image) {
-                Log.e("TAG", "analyze: "+image );
+                Log.e("TAG", "analyze: " + image);
                 image.close();
             }
         });
@@ -230,9 +238,9 @@ public class CameraXView extends FrameLayout {
             //重新绑定之前必须先取消绑定
             cameraProvider.unbindAll();
             camera = cameraProvider.bindToLifecycle((LifecycleOwner) mContext,
-                    cameraSelector,preview, imageCapture,videoCapture);
+                    cameraSelector, preview, imageCapture, videoCapture);
             preview.setSurfaceProvider(previewView.getSurfaceProvider());
-        }catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
@@ -247,17 +255,18 @@ public class CameraXView extends FrameLayout {
     }
 
     /**
-     *
      * @param duration 毫秒
      */
     public void setDuration(int duration) {
         this.duration = duration;
         mCaptureLayout.setDuration(duration);
     }
+
     public void setMinDuration(int duration) {
         mCaptureLayout.setMinDuration(duration);
     }
-    private String getPathTimeName(){
+
+    private String getPathTimeName() {
         SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault());
         return simpleDateFormat.format(new Date(System.currentTimeMillis()));
     }
@@ -269,6 +278,7 @@ public class CameraXView extends FrameLayout {
 
     private int scaleRate;
     private MediaPlayer mMediaPlayer;
+
     @SuppressLint("RestrictedApi")
     private void initView() {
         setWillNotDraw(false);
@@ -284,9 +294,9 @@ public class CameraXView extends FrameLayout {
         mSwitchCamera.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (CameraSelector.LENS_FACING_FRONT == lensFacing){
+                if (CameraSelector.LENS_FACING_FRONT == lensFacing) {
                     lensFacing = CameraSelector.LENS_FACING_BACK;
-                }else{
+                } else {
                     lensFacing = CameraSelector.LENS_FACING_FRONT;
                 }
                 bindCameraUseCases();
@@ -298,7 +308,9 @@ public class CameraXView extends FrameLayout {
             public void cancel() {
                 stopVideo();
                 mCaptureLayout.resetCaptureLayout();
-                mSwitchCamera.setVisibility(VISIBLE);
+                if (switchCameraShow){
+                    mSwitchCamera.setVisibility(VISIBLE);
+                }
                 image_photo.setImageBitmap(null);
                 videoView.setVisibility(GONE);
                 previewView.setVisibility(VISIBLE);
@@ -306,9 +318,9 @@ public class CameraXView extends FrameLayout {
 
             @Override
             public void confirm() {
-                if (iCamera != null){
+                if (iCamera != null) {
                     String thumbnailPath = null;
-                    if (mediaType == MEDIA_VIDEO){
+                    if (mediaType == MEDIA_VIDEO) {
                         Bitmap bitmap = ThumbnailUtils.createVideoThumbnail(mediaPath, MediaStore.Video.Thumbnails.FULL_SCREEN_KIND);
                         try {
                             thumbnailPath = getContext().getExternalFilesDir(Environment.DIRECTORY_PICTURES) + File.separator + getPathTimeName() + ".jpg";
@@ -317,13 +329,13 @@ public class CameraXView extends FrameLayout {
                                 out.flush();
                                 out.close();
                             }
-                        }catch (Exception e){
+                        } catch (Exception e) {
                             e.printStackTrace();
                         }
-                    }else{
+                    } else {
                         thumbnailPath = mediaPath;
                     }
-                    iCamera.onTakePic(mediaUri,mediaPath,thumbnailPath,mediaType);
+                    iCamera.onTakePic(mediaUri, mediaPath, thumbnailPath, mediaType);
                 }
             }
         });
@@ -341,54 +353,55 @@ public class CameraXView extends FrameLayout {
                         .Builder(new File(mediaPath)).setMetadata(metadata).build();
                 imageCapture.takePicture(outputFileOptions, ContextCompat.getMainExecutor(mContext),
                         new ImageCapture.OnImageSavedCallback() {
-                    @Override
-                    public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
-                        mediaUri = outputFileResults.getSavedUri();
+                            @Override
+                            public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
+                                mediaUri = outputFileResults.getSavedUri();
 
-                        if (lensFacing == CameraSelector.LENS_FACING_FRONT){
-                            //mediaUri 保存的图片，前相机有镜像和宽高问题，使用glide 重新保存一下就正常了。
-                            Glide.with(mContext).asBitmap().listener(new RequestListener<Bitmap>() {
-                                @Override
-                                public boolean onLoadFailed(@Nullable GlideException e, Object model, Target<Bitmap> target, boolean isFirstResource) {
-                                    return false;
-                                }
-                                @Override
-                                public boolean onResourceReady(Bitmap resource, Object model, Target<Bitmap> target, DataSource dataSource, boolean isFirstResource) {
-                                    new Thread(new Runnable() {
+                                if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
+                                    //mediaUri 保存的图片，前相机有镜像和宽高问题，使用glide 重新保存一下就正常了。
+                                    Glide.with(mContext).asBitmap().listener(new RequestListener<Bitmap>() {
                                         @Override
-                                        public void run() {
-                                            Matrix matrix = new Matrix();
-                                            Bitmap bitmap = Bitmap.createBitmap(resource, 0, 0, resource.getWidth(), resource.getHeight(), matrix, true);
-                                            try {
-                                                FileOutputStream out = new FileOutputStream(mediaPath, false);
-                                                if (bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
-                                                    out.flush();
-                                                    out.close();
-                                                }
-                                                new Handler(Looper.getMainLooper()).post(new Runnable() {
-                                                    @Override
-                                                    public void run() {
-                                                        mCaptureLayout.startTypeBtnAnimator();
-                                                    }
-                                                });
-                                            }catch (Exception e){
-                                                e.printStackTrace();
-                                            }
+                                        public boolean onLoadFailed(@Nullable GlideException e, Object model, Target<Bitmap> target, boolean isFirstResource) {
+                                            return false;
                                         }
-                                    }).start();
-                                    return false;
-                                }
-                            }).load(mediaUri).centerCrop().into(image_photo);
-                        }else{
-                            mCaptureLayout.startTypeBtnAnimator();
-                            Glide.with(mContext).load(mediaUri).centerCrop().into(image_photo);
-                        }
-                    }
 
-                    @Override
-                    public void onError(@NonNull ImageCaptureException exception) {
-                    }
-                });
+                                        @Override
+                                        public boolean onResourceReady(Bitmap resource, Object model, Target<Bitmap> target, DataSource dataSource, boolean isFirstResource) {
+                                            new Thread(new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                    Matrix matrix = new Matrix();
+                                                    Bitmap bitmap = Bitmap.createBitmap(resource, 0, 0, resource.getWidth(), resource.getHeight(), matrix, true);
+                                                    try {
+                                                        FileOutputStream out = new FileOutputStream(mediaPath, false);
+                                                        if (bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                                                            out.flush();
+                                                            out.close();
+                                                        }
+                                                        new Handler(Looper.getMainLooper()).post(new Runnable() {
+                                                            @Override
+                                                            public void run() {
+                                                                mCaptureLayout.startTypeBtnAnimator();
+                                                            }
+                                                        });
+                                                    } catch (Exception e) {
+                                                        e.printStackTrace();
+                                                    }
+                                                }
+                                            }).start();
+                                            return false;
+                                        }
+                                    }).load(mediaUri).centerCrop().into(image_photo);
+                                } else {
+                                    mCaptureLayout.startTypeBtnAnimator();
+                                    Glide.with(mContext).load(mediaUri).centerCrop().into(image_photo);
+                                }
+                            }
+
+                            @Override
+                            public void onError(@NonNull ImageCaptureException exception) {
+                            }
+                        });
             }
 
             @SuppressLint("MissingPermission")
@@ -396,7 +409,7 @@ public class CameraXView extends FrameLayout {
             public void recordStart() {
                 isShort = false;
                 mSwitchCamera.setVisibility(INVISIBLE);
-                if (iCamera != null){
+                if (iCamera != null) {
                     iCamera.onRecordStart();
                 }
                 mediaType = MEDIA_VIDEO;
@@ -407,9 +420,9 @@ public class CameraXView extends FrameLayout {
                     @Override
                     public void onVideoSaved(@NonNull VideoCapture.OutputFileResults outputFileResults) {
                         mediaUri = outputFileResults.getSavedUri();
-                        if (isShort){
+                        if (isShort) {
                             new File(mediaPath).delete();
-                        }else{
+                        } else {
                             videoView.setVisibility(VISIBLE);
                             videoView.post(new Runnable() {
                                 @Override
@@ -420,6 +433,7 @@ public class CameraXView extends FrameLayout {
                                         } else {
                                             mMediaPlayer.reset();
                                         }
+
                                         mMediaPlayer.setDataSource(mediaPath);
                                         mMediaPlayer.setSurface(videoView.getHolder().getSurface());
                                         mMediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
@@ -463,8 +477,10 @@ public class CameraXView extends FrameLayout {
 
             @Override
             public void recordShort(final long time) {
-                mSwitchCamera.setVisibility(VISIBLE);
-                if (iCamera != null){
+                if (switchCameraShow){
+                    mSwitchCamera.setVisibility(VISIBLE);
+                }
+                if (iCamera != null) {
                     iCamera.onRecordShort(time);
                 }
 //                mCaptureLayout.setTextWithAnimation("录制时间过短");
@@ -481,7 +497,7 @@ public class CameraXView extends FrameLayout {
 
             @Override
             public void recordEnd(long time) {
-                if (iCamera != null){
+                if (iCamera != null) {
                     iCamera.onRecordEnd(time);
                 }
                 camera.getCameraControl().setZoomRatio(1);
@@ -492,10 +508,10 @@ public class CameraXView extends FrameLayout {
             @Override
             public void recordZoom(float zoom) {
                 int newScale = (int) (zoom / 40);
-                if (zoom > 0 && scaleRate != newScale && newScale > 0){
+                if (zoom > 0 && scaleRate != newScale && newScale > 0) {
                     scaleRate = newScale;
                     camera.getCameraControl().setZoomRatio(scaleRate);
-                    if (iCamera != null){
+                    if (iCamera != null) {
                         iCamera.onRecordZoom(zoom);
                     }
                 }
@@ -503,7 +519,7 @@ public class CameraXView extends FrameLayout {
 
             @Override
             public void recordError() {
-                if (iCamera != null){
+                if (iCamera != null) {
                     iCamera.onRecordError();
                 }
             }
@@ -526,6 +542,7 @@ public class CameraXView extends FrameLayout {
             }
         });
     }
+
     public void stopVideo() {
         if (mMediaPlayer != null && mMediaPlayer.isPlaying()) {
             mMediaPlayer.stop();
@@ -533,6 +550,7 @@ public class CameraXView extends FrameLayout {
             mMediaPlayer = null;
         }
     }
+
     @Override
     protected void onDetachedFromWindow() {
         cameraExecutor.shutdown();
@@ -540,21 +558,23 @@ public class CameraXView extends FrameLayout {
         super.onDetachedFromWindow();
     }
 
-    public void setTip(String tip){
+    public void setTip(String tip) {
         mCaptureLayout.setTip(tip);
     }
-    public void setWithAnimationTip(String tip){
+
+    public void setWithAnimationTip(String tip) {
         mCaptureLayout.setTextWithAnimation(tip);
     }
 
     public void setRightIconSrc(@DrawableRes int res) {
         mCaptureLayout.setRightIconSrc(res);
     }
-    public void setLeftIconSrc(@DrawableRes  int res) {
+
+    public void setLeftIconSrc(@DrawableRes int res) {
         mCaptureLayout.setLeftIconSrc(res);
     }
+
     /**
-     *
      * @param state BUTTON_STATE_BOTH
      *              BUTTON_STATE_ONLY_CAPTURE
      *              BUTTON_STATE_ONLY_RECORDER
@@ -562,20 +582,42 @@ public class CameraXView extends FrameLayout {
     public void setFeatures(int state) {
         this.mCaptureLayout.setButtonFeatures(state);
     }
-    public void setSwitchCameraRes(@DrawableRes int res){
+
+    public void setSwitchCameraRes(@DrawableRes int res) {
         mSwitchCamera.setImageResource(res);
     }
-    public static int MEDIA_IMAGE = 0;
-    public static int MEDIA_VIDEO = 1;
-    public interface ICamera{
+
+    private boolean switchCameraShow = true;
+
+    //是否显示摄像头切换按钮
+    public void setSwitchCameraShow(boolean switchCameraShow) {
+        this.switchCameraShow = switchCameraShow;
+        if (switchCameraShow){
+            mSwitchCamera.setVisibility(VISIBLE);
+        }else {
+            mSwitchCamera.setVisibility(GONE);
+        }
+    }
+    public static final int LENS_FACING_FRONT = 0;
+    public static final int LENS_FACING_BACK = 1;
+    /**
+     * @param lensFacing LENS_FACING_FRONT 0 前摄像头 ， LENS_FACING_BACK 1 后摄像头
+     */
+    public void setLensFacing(int lensFacing) {
+        this.lensFacing = lensFacing;
+    }
+
+    public static final int MEDIA_IMAGE = 0;
+    public static final int MEDIA_VIDEO = 1;
+
+    public interface ICamera {
         /**
-         *
          * @param uri
          * @param path
          * @param thumbnailPath MEDIA_VIDEO 时 thumbnailPath 视频缩略图
-         * @param mediaType 0 MEDIA_IMAGE 1 MEDIA_VIDEO
+         * @param mediaType     0 MEDIA_IMAGE 1 MEDIA_VIDEO
          */
-        void onTakePic(Uri uri,String path,String thumbnailPath,int mediaType);
+        void onTakePic(Uri uri, String path, String thumbnailPath, int mediaType);
 
         void onRecordShort(long time);
 
@@ -588,6 +630,7 @@ public class CameraXView extends FrameLayout {
         void onRecordError();
 
     }
+
     private ICamera iCamera;
 
     public void setiCamera(ICamera iCamera) {
