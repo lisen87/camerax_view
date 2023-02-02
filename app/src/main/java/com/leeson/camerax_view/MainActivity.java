@@ -109,7 +109,8 @@ public class MainActivity extends AppCompatActivity {
 //        cameraXView.setLeftIconSrc(R.drawable.ic_camera);
 //        cameraXView.setRightIconSrc(R.drawable.ic_camera);
         cameraXView.setDuration(15*1000);
-        cameraXView.setSwitchCameraShow(false);
+        cameraXView.setMinDuration(1000);
+//        cameraXView.setSwitchCameraShow(false);
 //        cameraXView.setLensFacing(CameraXView.LENS_FACING_FRONT);
         cameraXView.startCamera();
     }

@@ -5,7 +5,6 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.Rect;
-import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.ThumbnailUtils;
 import android.net.Uri;
@@ -15,11 +14,11 @@ import android.os.Looper;
 import android.provider.MediaStore;
 import android.util.AttributeSet;
 import android.util.Log;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 import android.widget.VideoView;
 
@@ -35,7 +34,6 @@ import com.leeson.cameraxview.listener.TypeListener;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -54,10 +52,17 @@ import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
-import androidx.camera.core.VideoCapture;
 import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.video.FileOutputOptions;
+import androidx.camera.video.Quality;
+import androidx.camera.video.QualitySelector;
+import androidx.camera.video.Recorder;
+import androidx.camera.video.Recording;
+import androidx.camera.video.VideoCapture;
+import androidx.camera.video.VideoRecordEvent;
 import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
+import androidx.core.util.Consumer;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.window.WindowManager;
 
@@ -84,12 +89,13 @@ public class CameraXView extends FrameLayout {
     private PreviewView previewView;
     private ImageView image_photo;
     private VideoView videoView;
+    private LinearLayout videoViewParent;
 
     private int duration = 10 * 1000;       //录制时间
 
     private ProcessCameraProvider processCameraProvider;
     private ImageCapture imageCapture;
-    private VideoCapture videoCapture;
+    private VideoCapture<Recorder> videoCapture;
     private Camera camera;
     private ExecutorService cameraExecutor;
     private int lensFacing = CameraSelector.LENS_FACING_BACK;
@@ -162,12 +168,17 @@ public class CameraXView extends FrameLayout {
                 try {
                     processCameraProvider = cameraProviderFuture.get();
                     // 构建并绑定照相机用例
-                    bindCameraUseCases();
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override
+                        public void run() {
+                            bindCameraUseCases();
+                        }
+                    });
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
-        }, ContextCompat.getMainExecutor(mContext));
+        }, cameraExecutor);
     }
 
     @SuppressLint("RestrictedApi")
@@ -193,11 +204,11 @@ public class CameraXView extends FrameLayout {
 
         preview = pBuilder
                 //设置宽高比
-                .setTargetAspectRatio(screenAspectRatio)
+//                .setTargetAspectRatio(screenAspectRatio)
                 //设置当前屏幕的旋转
                 .setTargetRotation(rotation)
                 .build();
-
+        preview.setSurfaceProvider(previewView.getSurfaceProvider());
         ImageCapture.Builder builder = new ImageCapture.Builder();
 
         imageCapture = builder
@@ -209,19 +220,8 @@ public class CameraXView extends FrameLayout {
                 .setTargetRotation(rotation)
                 .build();
 
-//        CamcorderProfile.get(lensFacing).videoBitRate = 16 * 100000;
-        videoCapture = new VideoCapture.Builder()
-                //设置当前旋转
-                .setTargetRotation(rotation)
-                //设置宽高比
-                .setTargetAspectRatio(screenAspectRatio)
-//                分辨率
-//                .setTargetResolution(resolution)
-                //视频帧率  越高视频体积越大
-//                .setVideoFrameRate(20)
-                //bit率  越大视频体积越大
-                .setBitRate(16 * 100000)
-                .build();
+        Recorder build = new Recorder.Builder().setExecutor(cameraExecutor).setQualitySelector(QualitySelector.from(Quality.SD)).build();
+        videoCapture = VideoCapture.withOutput(build);
         ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
                 .setTargetAspectRatio(screenAspectRatio)
                 .setTargetRotation(rotation)
@@ -235,11 +235,11 @@ public class CameraXView extends FrameLayout {
         });
 
         try {
+
             //重新绑定之前必须先取消绑定
             cameraProvider.unbindAll();
             camera = cameraProvider.bindToLifecycle((LifecycleOwner) mContext,
                     cameraSelector, preview, imageCapture, videoCapture);
-            preview.setSurfaceProvider(previewView.getSurfaceProvider());
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -278,6 +278,7 @@ public class CameraXView extends FrameLayout {
 
     private int scaleRate;
     private MediaPlayer mMediaPlayer;
+    private Recording recording;
 
     @SuppressLint("RestrictedApi")
     private void initView() {
@@ -285,6 +286,7 @@ public class CameraXView extends FrameLayout {
         View view = LayoutInflater.from(getContext()).inflate(R.layout.camerax_view, this);
         previewView = view.findViewById(R.id.view_finder);
         videoView = view.findViewById(R.id.video_preview);
+        videoViewParent = view.findViewById(R.id.videoViewParent);
         image_photo = view.findViewById(R.id.image_photo);
         mSwitchCamera = view.findViewById(R.id.image_switch);
         mCaptureLayout = view.findViewById(R.id.capture_layout);
@@ -312,6 +314,7 @@ public class CameraXView extends FrameLayout {
                     mSwitchCamera.setVisibility(VISIBLE);
                 }
                 image_photo.setImageBitmap(null);
+                videoViewParent.setVisibility(GONE);
                 videoView.setVisibility(GONE);
                 previewView.setVisibility(VISIBLE);
             }
@@ -356,7 +359,6 @@ public class CameraXView extends FrameLayout {
                             @Override
                             public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
                                 mediaUri = outputFileResults.getSavedUri();
-
                                 if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
                                     //mediaUri 保存的图片，前相机有镜像和宽高问题，使用glide 重新保存一下就正常了。
                                     Glide.with(mContext).asBitmap().listener(new RequestListener<Bitmap>() {
@@ -371,6 +373,7 @@ public class CameraXView extends FrameLayout {
                                                 @Override
                                                 public void run() {
                                                     Matrix matrix = new Matrix();
+//                                                    Bitmap bitmap = Bitmap.createBitmap(resource);
                                                     Bitmap bitmap = Bitmap.createBitmap(resource, 0, 0, resource.getWidth(), resource.getHeight(), matrix, true);
                                                     try {
                                                         FileOutputStream out = new FileOutputStream(mediaPath, false);
@@ -414,65 +417,81 @@ public class CameraXView extends FrameLayout {
                 }
                 mediaType = MEDIA_VIDEO;
                 mediaPath = getContext().getExternalFilesDir(Environment.DIRECTORY_MOVIES) + File.separator + getPathTimeName() + ".mp4";
-                VideoCapture.Metadata metadata = new VideoCapture.Metadata();
-                VideoCapture.OutputFileOptions build = new VideoCapture.OutputFileOptions.Builder(new File(mediaPath)).setMetadata(metadata).build();
-                videoCapture.startRecording(build, ContextCompat.getMainExecutor(mContext), new VideoCapture.OnVideoSavedCallback() {
-                    @Override
-                    public void onVideoSaved(@NonNull VideoCapture.OutputFileResults outputFileResults) {
-                        mediaUri = outputFileResults.getSavedUri();
-                        if (isShort) {
-                            new File(mediaPath).delete();
-                        } else {
-                            videoView.setVisibility(VISIBLE);
-                            videoView.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    try {
-                                        if (mMediaPlayer == null) {
-                                            mMediaPlayer = new MediaPlayer();
-                                        } else {
-                                            mMediaPlayer.reset();
-                                        }
 
-                                        mMediaPlayer.setDataSource(mediaPath);
-                                        mMediaPlayer.setSurface(videoView.getHolder().getSurface());
-                                        mMediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
-                                        mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
-                                        mMediaPlayer.setOnVideoSizeChangedListener(new MediaPlayer
-                                                .OnVideoSizeChangedListener() {
+
+                FileOutputOptions fileOutputOptions = new FileOutputOptions.Builder(new File(mediaPath)).build();
+                recording = videoCapture.getOutput()
+                        .prepareRecording(getContext(),fileOutputOptions).withAudioEnabled()
+                        .withAudioEnabled().start(ContextCompat.getMainExecutor(mContext), new Consumer<VideoRecordEvent>() {
+                            @Override
+                            public void accept(VideoRecordEvent videoRecordEvent) {
+                                if (videoRecordEvent instanceof VideoRecordEvent.Finalize) {
+                                    VideoRecordEvent.Finalize finalizeEvent =
+                                            (VideoRecordEvent.Finalize) videoRecordEvent;
+                                    mediaUri = finalizeEvent.getOutputResults().getOutputUri();
+                                    if (isShort) {
+                                        new File(mediaPath).delete();
+                                    } else {
+                                        videoViewParent.setVisibility(VISIBLE);
+                                        videoView.setVisibility(VISIBLE);
+                                        videoView.setVideoURI(mediaUri);
+                                        videoView.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
                                             @Override
-                                            public void
-                                            onVideoSizeChanged(MediaPlayer mp, int videoWidth, int videoHeight) {
-                                                if (videoWidth > videoHeight) {
-                                                    LayoutParams videoViewParam;
-                                                    int height = (int) ((videoHeight / videoWidth) * getWidth());
-                                                    videoViewParam = new LayoutParams(LayoutParams.MATCH_PARENT, height);
-                                                    videoViewParam.gravity = Gravity.CENTER;
-                                                    videoView.setLayoutParams(videoViewParam);
-                                                }
+                                            public void onPrepared(MediaPlayer mediaPlayer) {
+                                                mediaPlayer.setLooping(true);
+//                                                        previewView.setVisibility(GONE);
+                                                videoView.start();
                                             }
                                         });
-                                        mMediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
-                                            @Override
-                                            public void onPrepared(MediaPlayer mp) {
-                                                mMediaPlayer.start();
-                                            }
-                                        });
-                                        mMediaPlayer.setLooping(true);
-                                        mMediaPlayer.prepareAsync();
-                                    } catch (IOException e) {
-                                        e.printStackTrace();
+
+
+//                                        videoView.post(new Runnable() {
+//                                            @Override
+//                                            public void run() {
+//
+//                                                try {
+//                                                    if (mMediaPlayer == null) {
+//                                                        mMediaPlayer = new MediaPlayer();
+//                                                    } else {
+//                                                        mMediaPlayer.reset();
+//                                                    }
+//
+//                                                    mMediaPlayer.setDataSource(mediaPath);
+//                                                    mMediaPlayer.setSurface(videoView.getHolder().getSurface());
+//                                                    mMediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+//                                                    mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+//                                                    mMediaPlayer.setOnVideoSizeChangedListener(new MediaPlayer
+//                                                            .OnVideoSizeChangedListener() {
+//                                                        @Override
+//                                                        public void
+//                                                        onVideoSizeChanged(MediaPlayer mp, int videoWidth, int videoHeight) {
+//                                                            Log.e("TAG", "onVideoSizeChanged: "+videoWidth+"  = "+videoHeight );
+//                                                            if (videoWidth > videoHeight) {
+//                                                                LayoutParams videoViewParam;
+//                                                                int height = (int) ((videoHeight / videoWidth) * getWidth());
+//                                                                videoViewParam = new LayoutParams(LayoutParams.MATCH_PARENT, height);
+//                                                                videoViewParam.gravity = Gravity.CENTER;
+//                                                                videoView.setLayoutParams(videoViewParam);
+//                                                            }
+//                                                        }
+//                                                    });
+//                                                    mMediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+//                                                        @Override
+//                                                        public void onPrepared(MediaPlayer mp) {
+//                                                            mMediaPlayer.start();
+//                                                        }
+//                                                    });
+//                                                    mMediaPlayer.setLooping(true);
+//                                                    mMediaPlayer.prepareAsync();
+//                                                } catch (IOException e) {
+//                                                    e.printStackTrace();
+//                                                }
+//                                            }
+//                                        });
                                     }
                                 }
-                            });
-                        }
-                    }
-
-                    @Override
-                    public void onError(int videoCaptureError, @NonNull String message, @Nullable Throwable cause) {
-                        new File(mediaPath).delete();
-                    }
-                });
+                            }
+                        });
             }
 
             @Override
@@ -489,7 +508,10 @@ public class CameraXView extends FrameLayout {
                     @Override
                     public void run() {
                         mCaptureLayout.resetCaptureLayout();
-                        videoCapture.stopRecording();
+                        if(recording != null){
+                            recording.stop();
+                            recording = null;
+                        }
                         isShort = true;
                     }
                 }, 1500 - time);
@@ -502,7 +524,10 @@ public class CameraXView extends FrameLayout {
                 }
                 camera.getCameraControl().setZoomRatio(1);
                 mCaptureLayout.startTypeBtnAnimator();
-                videoCapture.stopRecording();
+                if(recording != null){
+                    recording.stop();
+                    recording = null;
+                }
             }
 
             @Override
